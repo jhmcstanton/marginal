@@ -9,6 +9,7 @@ copyright:           "2019 Jim McStanton"
 extra-source-files:
 - README.md
 - ChangeLog.md
+- src/Marginal/Lexer.x
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package
@@ -24,6 +25,10 @@ dependencies:
 
 library:
   source-dirs: src
+  build-tools:
+  - alex
+  exposed-modules:
+  - Marginal.Lexer
 
 executables:
   marginal-exe:
