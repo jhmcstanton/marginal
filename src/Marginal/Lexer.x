@@ -3,9 +3,9 @@
 module Marginal.Lexer
   (
     scanTokens,
+    AlexPosn(..),
     MarginalToken(..),
-    Token(..),
-    AlexPosn(..)
+    Token(..)
   )
   where
 

@@ -2,3 +2,4 @@
 marginal.cabal
 *~
 src/Marginal/Lexer.hs
+src/Marginal/SimpleLexer.hs
