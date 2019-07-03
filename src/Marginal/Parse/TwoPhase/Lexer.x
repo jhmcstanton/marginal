@@ -1,6 +1,6 @@
 {
 {-# LANGUAGE OverloadedStrings #-}
-module Marginal.SimpleLexer
+module Marginal.Parse.TwoPhase.Lexer
   (
     scanSimpleTokens,
     AlexPosn(..),

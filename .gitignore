@@ -1,5 +1,5 @@
 .stack-work/
 marginal.cabal
 *~
-src/Marginal/Lexer.hs
-src/Marginal/SimpleLexer.hs
+src/Marginal/Parse/OnePhase/Lexer.hs
+src/Marginal/Parse/TwoPhase/Lexer.hs

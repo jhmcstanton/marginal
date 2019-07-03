@@ -9,8 +9,8 @@ copyright:           "2019 Jim McStanton"
 extra-source-files:
 - README.md
 - ChangeLog.md
-- src/Marginal/Lexer.x
-- src/Marginal/SimpleLexer.x
+- src/Marginal/Parse/OnePhase/Lexer.x
+- src/Marginal/Parse/TwoPhase/Lexer.x
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package
@@ -30,9 +30,10 @@ library:
   source-dirs: src
   build-tools:
   - alex
+  - happy
   exposed-modules:
-  - Marginal.Lexer
-  - Marginal.SimpleLexer
+  - Marginal.Parse.OnePhase.Lexer
+  - Marginal.Parse.TwoPhase.Lexer
 
 executables:
   marginal-exe:
