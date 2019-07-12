@@ -2,7 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Marginal.Parse.TwoPhase.Lexer
   (
-    scanSimpleTokens,
+    alexScanTokens,
+    mtoken,
+    posn,
     AlexPosn(..),
     MarginalToken(..),
     Token(..)
@@ -24,12 +26,14 @@ tokens :-
 
 {
 
-scanSimpleTokens = alexScanTokens
-
 token :: MarginalToken -> AlexPosn -> ByteString -> Token
 token m p _ = Token p m
 
 data Token = Token AlexPosn MarginalToken deriving (Show)
 
-data MarginalToken = TSpace | TTab | TNewline deriving (Show)
+mtoken (Token _ tok) = tok
+posn   (Token p _  ) = p
+
+data MarginalToken = TSpace | TTab | TNewline deriving (Eq, Show)
+
 }

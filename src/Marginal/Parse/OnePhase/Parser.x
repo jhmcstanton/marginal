@@ -2,15 +2,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Marginal.Parse.OnePhase.Parser
   (
-    scanTokens,
-    AlexPosn(..),
-    MarginalToken(..),
-    Token(..)
+    scanInstructions,
   )
   where
 
 import           Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
+
+import           Marginal.Parse.Type
 }
 
 %wrapper "posn-bytestring"
@@ -28,52 +27,52 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 
 tokens :-
 
-  @stack\ @number      { numberToToken TPush    }
-  @stack\n\            { token TDup             }
-  @stack\n\t           { token TSwap            }
-  @stack\n\n           { token TDrop            }
+  @stack\ @number      { numberToInstr Push     }
+  @stack\n\            { instr Dup              }
+  @stack\n\t           { instr Swap             }
+  @stack\n\n           { instr Drop             }
 
-  @arith\ \            { token TAdd             }
-  @arith\ \t           { token TSub             }
-  @arith\ \n           { token TMult            }
-  @arith\t\            { token TDiv             }
-  @arith\t\t           { token TMod             }
+  @arith\ \            { instr Add              }
+  @arith\ \t           { instr Sub              }
+  @arith\ \n           { instr Mult             }
+  @arith\t\            { instr Div              }
+  @arith\t\t           { instr Mod              }
 
-  @heap\               { token TStore           }
-  @heap\t              { token TRetrieve        }
+  @heap\               { instr Store            }
+  @heap\t              { instr Retrieve         }
 
-  @flow\ \ @label      { labelToToken TMark     }
-  @flow\ \t@label      { labelToToken TFunc     }
-  @flow\ \n@label      { labelToToken TJump     }
-  @flow\t\ @label      { labelToToken TJumpZero }
-  @flow\t\t@label      { labelToToken TJumpNeg  }
-  @flow\t\n            { token TReturn          }
-  @flow\n\n            { token TExit            }
+  @flow\ \ @label      { labelToInstr Mark      }
+  @flow\ \t@label      { labelToInstr Func      }
+  @flow\ \n@label      { labelToInstr Jump      }
+  @flow\t\ @label      { labelToInstr JumpZero  }
+  @flow\t\t@label      { labelToInstr JumpNeg   }
+  @flow\t\n            { instr Return           }
+  @flow\n\n            { instr Exit             }
 
-  @io\ \               { token TPrintChar       }
-  @io\ \n              { token TPrintNum        }
-  @io\t\               { token TReadChar        }
-  @io\t\t              { token TReadNum         }
+  @io\ \               { instr PrintChar        }
+  @io\ \n              { instr PrintNum         }
+  @io\t\               { instr ReadChar         }
+  @io\t\t              { instr ReadNum          }
 
 {
 
 -- Main token scanner. Removes all characters besides
 -- ' ', '\t', and '\n' prior to running alex
-scanTokens :: ByteString -> [Token]
-scanTokens = alexScanTokens . BS.filter whitespaceChar where
+scanInstructions :: ByteString -> [Instruction]
+scanInstructions = alexScanTokens . BS.filter whitespaceChar where
   whitespaceChar c = c == ' ' || c == '\t' || c == '\n'
 
-numberToToken :: (Number -> MarginalToken)
-               -> AlexPosn
+numberToInstr :: (Number -> Instruction)
+               -> a
                -> ByteString
-               -> Token
-numberToToken f posn input = Token posn (f . readNumber $ input)
+               -> Instruction
+numberToInstr f _ input = f . readNumber $ input
 
-labelToToken :: (Label -> MarginalToken)
-             -> AlexPosn
+labelToInstr :: (Label -> Instruction)
+             -> a
              -> ByteString
-             -> Token
-labelToToken f posn input = Token posn (f . Label . BS.init $ input)
+             -> Instruction
+labelToInstr f _ = f . Label . BS.drop 3 . BS.init
 
 digit :: Char -> Integer
 digit ' '  = 0
@@ -92,42 +91,6 @@ readInteger bs = bsign * BS.foldl combine 0 userDigits where
 readNumber :: ByteString -> Number
 readNumber = Number . readInteger
 
-token :: MarginalToken -> AlexPosn -> ByteString -> Token
-token m p _ = Token p m
-
-data Token = Token AlexPosn MarginalToken
-  deriving (Show)
-
-newtype Number = Number Integer deriving (Show)
-newtype Label  = Label ByteString deriving (Show)
-
-data MarginalToken =
-  -- Stack Manipulation
-    TPush Number
-  | TDup
-  | TSwap
-  | TDrop
-  -- Arithmetic
-  | TAdd
-  | TSub
-  | TMult
-  | TDiv
-  | TMod
-  -- Heap Access
-  | TStore
-  | TRetrieve
-  -- Flow Control
-  | TMark Label
-  | TFunc Label
-  | TJump Label
-  | TJumpZero Label
-  | TJumpNeg  Label
-  | TReturn
-  | TExit
-  -- IO
-  | TPrintChar
-  | TPrintNum
-  | TReadChar
-  | TReadNum
-  deriving (Show)
+instr :: Instruction -> a -> b -> Instruction
+instr i _ _ = i
 }
