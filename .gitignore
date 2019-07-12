@@ -3,3 +3,4 @@ marginal.cabal
 *~
 src/Marginal/Parse/OnePhase/Parser.hs
 src/Marginal/Parse/TwoPhase/Lexer.hs
+src/Marginal/Parse/TwoPhase/Parser.hs
