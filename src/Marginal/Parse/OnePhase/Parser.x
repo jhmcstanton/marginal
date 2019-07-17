@@ -84,8 +84,8 @@ sign '\t' = -1
 
 readInteger :: ByteString -> Integer
 readInteger bs = bsign * BS.foldl combine 0 userDigits where
-  userDigits = BS.dropWhile (== ' ') (BS.init $ BS.tail bs)
-  bsign = sign (BS.head bs)
+  userDigits = BS.init . BS.dropWhile (== ' ') . BS.drop 3 $ bs
+  bsign = sign (bs `BS.index` 2)
   combine acc c = acc * 2 + (digit c)
 
 readNumber :: ByteString -> Number
