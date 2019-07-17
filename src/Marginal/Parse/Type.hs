@@ -1,3 +1,4 @@
+{-# Language DeriveGeneric #-}
 module Marginal.Parse.Type
   (
     Instruction(..),
@@ -7,9 +8,13 @@ module Marginal.Parse.Type
 where
 
 import           Data.ByteString.Lazy (ByteString)
+import           Data.Hashable
+import           GHC.Generics
 
 newtype Number = Number Integer   deriving (Eq, Show)
-newtype Label  = Label ByteString deriving (Eq, Show)
+newtype Label  = Label ByteString deriving (Eq, Show, Generic)
+
+instance Hashable Label
 
 data Instruction =
   -- Stack Manipulation

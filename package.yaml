@@ -22,9 +22,13 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/jhmcstanton/marginal#readme>
 
 dependencies:
-- base               >= 4.7 && < 5
-- array              >= 0.5.3.0
-- bytestring         >= 0.10.8.2
+- base                 >= 4.7 && < 5
+- array                >= 0.5.3.0
+- bytestring           >= 0.10.8.2
+- containers           >= 0.6.0.1
+- unordered-containers >= 0.2.10.0
+- hashable             >= 1.2.7.0
+- vector               >= 0.12.0.3
 
 library:
   source-dirs: src
@@ -34,6 +38,9 @@ library:
   exposed-modules:
   - Marginal.Parse.OnePhase.Parser
   - Marginal.Parse.TwoPhase.Lexer
+  - Marginal.Parse.Type
+  - Marginal.VM.Strict
+  - Marginal.VM.Type
 
 executables:
   marginal-exe:
