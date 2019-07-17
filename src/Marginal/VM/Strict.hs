@@ -40,23 +40,19 @@ instance VMType Strict where
     where
       loop vm instructions = do
         let instr = instructions V.! (pc vm)
-        -- putStrLn (show instr) -- TODO: remove this
         vm' <- step vm instr
         case stepResult vm' of
           VMExit -> pure vm'
           _      -> run vm' instructions
-      -- instrs' = V.filter notMark instructions
-      -- notMark (Mark _) = False
-      -- notMark _        = True
 
   step = step'
 
 start = VMStrict 0 [] VMStart [] I.empty empty
 
 locateLabels :: V.Vector Instruction -> Labels
-locateLabels = snd . V.foldr' acc (0, empty) where
-  acc (Mark l) (i, m) = (i + 1, insert l (i + 1) m)
-  acc _ (i, m)        = (i + 1, m)
+locateLabels = snd . V.foldl' acc (0, empty) where
+  acc (i, m) (Mark l) = (i + 1, insert l (i + 1) m)
+  acc (i, m) _        = (i + 1, m)
 
 step' vm@(VMStrict pc rptrs _ stack heap labels) instr =
   let vm' = VMStrict (pc + 1) rptrs VMOther
@@ -86,9 +82,9 @@ step' vm@(VMStrict pc rptrs _ stack heap labels) instr =
                           _ -> error "Stack empty, unable to retrieve from heap"
     Mark label       -> pure $ vm' stack heap (insert label pc labels)
     Func label       -> pure $ call label vm
-    Jump label       -> pure $ jump (const True) label vm
-    JumpZero label   -> pure $ jump (== 0) label vm
-    JumpNeg label    -> pure $ jump (<  0) label vm
+    Jump label       -> pure $ jump label vm
+    JumpZero label   -> pure $ condJump (== 0) label vm
+    JumpNeg label    -> pure $ condJump (<  0) label vm
     Return           -> case rptrs of
                           []        -> error "Nothing to return to"
                           (r : rptrs') ->
@@ -118,12 +114,15 @@ call :: Label -> VM Strict -> VM Strict
 call label (VMStrict pc rptrs _ stack heap labels) =
   VMStrict (labels ! label) ((pc + 1) : rptrs) VMOther stack heap labels
 
-jump :: (Integer -> Bool) -> Label -> VM Strict -> VM Strict
-jump _ label VMStrict{stack=[]} = error $ "Stack empty, unable to jump to :" ++ show label
-jump f label (VMStrict pc rptrs _ stack@(x : xs) heap labels) =
+condJump :: (Integer -> Bool) -> Label -> VM Strict -> VM Strict
+condJump _ label VMStrict{stack=[]} = error $ "Stack empty, unable to jump to :" ++ show label
+condJump f label vm@(VMStrict pc rptrs _ stack@(x : xs) heap labels) =
   if f x
-  then VMStrict (labels ! label) rptrs VMOther stack heap labels
+  then jump label vm
   else VMStrict (pc + 1) rptrs VMOther stack heap labels
+
+jump :: Label -> VM Strict -> VM Strict
+jump label vm@VMStrict{labels} = vm{ pc = labels ! label, stepResult = VMOther }
 
 printVal instr VMStrict{stack=[]} =
   error $ "Stack empty, unable to " ++ show instr
