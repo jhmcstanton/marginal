@@ -13,7 +13,7 @@ class VMType (strategy :: EvalStrategy) where
   type VMOut strategy :: * -> *
   run                 :: VM strategy
                       -> Vector Instruction
-                      -> VMOut strategy (VM strategy, ())
+                      -> VMOut strategy (VM strategy)
   step                :: VM strategy
                       -> Instruction
-                      -> VMOut strategy (VM strategy, ())
+                      -> VMOut strategy (VM strategy)

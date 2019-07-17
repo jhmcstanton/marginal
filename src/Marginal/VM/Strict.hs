@@ -1,6 +1,7 @@
-{-# Language DataKinds    #-}
-{-# Language Strict       #-}
-{-# Language TypeFamilies #-}
+{-# Language DataKinds      #-}
+{-# Language NamedFieldPuns #-}
+{-# Language Strict         #-}
+{-# Language TypeFamilies   #-}
 module Marginal.VM.Strict
   (
     run,
@@ -13,7 +14,6 @@ import           Data.Char
 import           Data.HashMap.Strict
 import qualified Data.IntMap.Strict as I
 import qualified Data.Vector as V
-import           System.Exit (exitSuccess)
 
 import           Marginal.Parse.Type
 import           Marginal.VM.Type
@@ -24,72 +24,76 @@ type VMHeap         = I.IntMap Integer
 type VMStack        = [Integer]
 type Labels         = HashMap Label ProgramCounter
 
+data StepResult = VMExit | VMStart | VMOther deriving (Eq, Show)
+
 instance VMType Strict where
   data VM Strict = VMStrict {
     pc         :: ProgramCounter,
     returnPtrs :: [ProgramCounter],
+    stepResult :: StepResult,
     stack      :: VMStack,
     heap       :: VMHeap,
     labels     :: Labels
   }
-  type VMOut Strict = IO
+  type VMOut Strict   = IO
   run vm instructions = loop vm { labels = locateLabels instructions} instructions
     where
       loop vm instructions = do
         let instr = instructions V.! (pc vm)
-        putStrLn (show instr) -- TODO: remove this
-        (vm', ()) <- step vm instr
-        run vm' instructions
+        -- putStrLn (show instr) -- TODO: remove this
+        vm' <- step vm instr
+        case stepResult vm' of
+          VMExit -> pure vm'
+          _      -> run vm' instructions
       -- instrs' = V.filter notMark instructions
       -- notMark (Mark _) = False
       -- notMark _        = True
 
   step = step'
 
-start = VMStrict 0 [] [] I.empty empty
+start = VMStrict 0 [] VMStart [] I.empty empty
 
 locateLabels :: V.Vector Instruction -> Labels
 locateLabels = snd . V.foldr' acc (0, empty) where
   acc (Mark l) (i, m) = (i + 1, insert l (i + 1) m)
   acc _ (i, m)        = (i + 1, m)
 
-step' vm@(VMStrict pc rptrs stack heap labels) instr =
-  let noIO s = pure (s, ())
-      vm' = VMStrict (pc + 1) rptrs
+step' vm@(VMStrict pc rptrs _ stack heap labels) instr =
+  let vm' = VMStrict (pc + 1) rptrs VMOther
       stackLen = show . length
   in
   case instr of
-    Push (Number n) -> noIO $ vm' (n : stack) heap labels
+    Push (Number n) -> pure $ vm' (n : stack) heap labels
     Dup             -> case stack of
-                         (x : xs) -> noIO $ vm' (x : x : xs) heap labels
+                         (x : xs) -> pure $ vm' (x : x : xs) heap labels
                          []       -> error "Stack empty, nothing to duplicate!"
     Swap             -> case stack of
-                          (x : y : xs) -> noIO $ vm' (y : x : xs) heap labels
+                          (x : y : xs) -> pure $ vm' (y : x : xs) heap labels
                           _ -> error $ "Stack too small to swap. Size: " ++ stackLen stack
     Drop             -> case stack of
-                          (x : xs) -> noIO $ vm' xs heap labels
+                          (x : xs) -> pure $ vm' xs heap labels
                           _        -> error "Stack empty, nothing to discard."
-    Add              -> noIO $ vm' (arithmetic stack Add) heap labels
-    Sub              -> noIO $ vm' (arithmetic stack Sub) heap labels
-    Mult             -> noIO $ vm' (arithmetic stack Mult) heap labels
-    Div              -> noIO $ vm' (arithmetic stack Div) heap labels
-    Mod              -> noIO $ vm' (arithmetic stack Mod) heap labels
+    Add              -> pure $ vm' (arithmetic stack Add) heap labels
+    Sub              -> pure $ vm' (arithmetic stack Sub) heap labels
+    Mult             -> pure $ vm' (arithmetic stack Mult) heap labels
+    Div              -> pure $ vm' (arithmetic stack Div) heap labels
+    Mod              -> pure $ vm' (arithmetic stack Mod) heap labels
     Store            -> case stack of
-                          (val : key : xs) -> noIO $ vm' stack (store val key heap) labels
+                          (val : key : xs) -> pure $ vm' stack (store val key heap) labels
                           _ -> error $ "Stack too small to store. Size: " ++ stackLen stack
     Retrieve         -> case stack of
-                          (key : xs) -> noIO $ vm' (retrieve key heap : stack) heap labels
+                          (key : xs) -> pure $ vm' (retrieve key heap : stack) heap labels
                           _ -> error "Stack empty, unable to retrieve from heap"
-    Mark label       -> noIO $ vm' stack heap (insert label pc labels)
-    Func label       -> noIO $ call label vm
-    Jump label       -> noIO $ jump (const True) label vm
-    JumpZero label   -> noIO $ jump (== 0) label vm
-    JumpNeg label    -> noIO $ jump (<  0) label vm
+    Mark label       -> pure $ vm' stack heap (insert label pc labels)
+    Func label       -> pure $ call label vm
+    Jump label       -> pure $ jump (const True) label vm
+    JumpZero label   -> pure $ jump (== 0) label vm
+    JumpNeg label    -> pure $ jump (<  0) label vm
     Return           -> case rptrs of
                           []        -> error "Nothing to return to"
                           (r : rptrs') ->
-                            noIO $ vm { pc = r, returnPtrs = rptrs'}
-    Exit             -> exitSuccess >> pure (start, ())
+                            pure $ vm { pc = r, returnPtrs = rptrs'}
+    Exit             -> pure vm { stepResult = VMExit }
     PrintChar        -> printVal PrintChar vm
     PrintNum         -> printVal PrintNum vm
     ReadChar         -> readVal ReadChar vm
@@ -111,35 +115,37 @@ retrieve :: Integer -> I.IntMap Integer -> Integer
 retrieve val map = map I.! (fromIntegral val)
 
 call :: Label -> VM Strict -> VM Strict
-call label (VMStrict pc rptrs stack heap labels) =
-  VMStrict (labels ! label) ((pc + 1) : rptrs) stack heap labels
+call label (VMStrict pc rptrs _ stack heap labels) =
+  VMStrict (labels ! label) ((pc + 1) : rptrs) VMOther stack heap labels
 
 jump :: (Integer -> Bool) -> Label -> VM Strict -> VM Strict
-jump _ label (VMStrict _ _ [] _ _) = error $ "Stack empty, unable to jump to :" ++ show label
-jump f label (VMStrict pc rptrs stack@(x : xs) heap labels) =
+jump _ label VMStrict{stack=[]} = error $ "Stack empty, unable to jump to :" ++ show label
+jump f label (VMStrict pc rptrs _ stack@(x : xs) heap labels) =
   if f x
-  then VMStrict (labels ! label) rptrs stack heap labels
-  else VMStrict (pc + 1) rptrs stack heap labels
+  then VMStrict (labels ! label) rptrs VMOther stack heap labels
+  else VMStrict (pc + 1) rptrs VMOther stack heap labels
 
-printVal instr (VMStrict _ _ [] _ _) =
+printVal instr VMStrict{stack=[]} =
   error $ "Stack empty, unable to " ++ show instr
-printVal PrintChar vm@(VMStrict _ _ stack _ _) = do
+printVal PrintChar vm@VMStrict{stack} = do
   putChar . chr . fromIntegral . head $ stack
-  pure (incPC vm, ())
-printVal PrintNum vm@(VMStrict _ _ stack _ _)  = do
-  putStrLn . show . head $ stack
-  pure (incPC vm, ())
+  pure (incPC vm)
+printVal PrintNum vm@VMStrict{stack}  = do
+  putStr . show . head $ stack
+  pure (incPC vm)
 
-readVal instr (VMStrict _ _ [] _ _) =
+readVal instr VMStrict{ stack=[] } =
   error $ "Stack empty, unable to " ++ show instr
-readVal ReadChar vm@(VMStrict _ _ (x : xs) heap _) =
-  getChar >>= \input -> pure (incPC vm {
-                          heap = I.insert (fromIntegral x) (fromIntegral . ord $ input) heap
-                          }, ())
-readval ReadNum vm@(VMStrict _ _ (x : xs) heap _) =
-  getLine >>= \input -> pure (incPC vm {
-                              heap = I.insert (fromIntegral x) (read input) heap
-                             }, ())
+readVal ReadChar vm@VMStrict{ stack=(x : xs), heap } =
+  getChar >>= \input ->
+    pure (incPC vm {
+           heap = I.insert (fromIntegral x) (fromIntegral . ord $ input) heap
+         })
+readval ReadNum vm@VMStrict { stack=(x:xs), heap } =
+  getLine >>= \input ->
+    pure (incPC vm {
+           heap = I.insert (fromIntegral x) (read input) heap
+         })
 
 incPC :: VM Strict -> VM Strict
-incPC vm@(VMStrict pc _ _ _ _) = vm { pc = pc + 1 }
+incPC vm@VMStrict{pc} = vm { pc = pc + 1 }
