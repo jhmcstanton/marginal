@@ -6,7 +6,8 @@ module Marginal.VM.Strict
   (
     run,
     step,
-    start
+    start,
+    strictStart
   )
 where
 
@@ -45,9 +46,10 @@ instance VMType Strict where
           VMExit -> pure vm'
           _      -> run vm' instructions
 
-  step = step'
+  step  = step'
+  start = strictStart
 
-start = VMStrict 0 [] VMStart [] I.empty empty
+strictStart = VMStrict 0 [] VMStart [] I.empty empty
 
 locateLabels :: V.Vector Instruction -> Labels
 locateLabels = snd . V.foldl' acc (0, empty) where

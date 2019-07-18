@@ -38,6 +38,7 @@ library:
   exposed-modules:
   - Marginal.Parse.OnePhase.Parser
   - Marginal.Parse.TwoPhase.Lexer
+  - Marginal.Parse.TwoPhase.Parser
   - Marginal.Parse.Type
   - Marginal.VM.Strict
   - Marginal.VM.Type
@@ -52,6 +53,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - marginal
+    - optparse-applicative >= 0.14.3.0
 
 tests:
   marginal-test:

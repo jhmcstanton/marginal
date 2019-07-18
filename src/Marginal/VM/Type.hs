@@ -6,7 +6,7 @@ import           Marginal.Parse.Type
 
 import           Data.Vector (Vector)
 
-data EvalStrategy = Lazy | Strict deriving (Eq, Show)
+data EvalStrategy = Lazy | Strict deriving (Eq, Read, Show)
 
 class VMType (strategy :: EvalStrategy) where
   data VM strategy    :: *
@@ -17,3 +17,4 @@ class VMType (strategy :: EvalStrategy) where
   step                :: VM strategy
                       -> Instruction
                       -> VMOut strategy (VM strategy)
+  start               :: VM strategy
