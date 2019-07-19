@@ -142,7 +142,7 @@ readVal ReadChar vm@VMStrict{ stack=(x : xs), heap } =
     pure (incPC vm {
            heap = I.insert (fromIntegral x) (fromIntegral . ord $ input) heap
          })
-readval ReadNum vm@VMStrict { stack=(x:xs), heap } =
+readVal ReadNum vm@VMStrict { stack=(x:xs), heap } =
   getLine >>= \input ->
     pure (incPC vm {
            heap = I.insert (fromIntegral x) (read input) heap
