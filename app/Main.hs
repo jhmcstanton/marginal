@@ -1,5 +1,6 @@
 {-# Language DataKinds        #-}
 {-# Language GADTs            #-}
+{-# Language NamedFieldPuns   #-}
 {-# Language TypeApplications #-}
 {-# Language TypeFamilies     #-}
 module Main where
@@ -20,9 +21,11 @@ import           Marginal.VM.Strict
 
 data RunOptions = RunOptions
   {
-    file   :: FilePath
-  , parser :: String -- ParseType
+    file             :: FilePath
+  , parser           :: String -- ParseType
   -- , vm     :: EvalStrategy -- TODO: add this*
+  , dumpLex          :: Bool
+  , dumpInstructions :: Bool
   }
 -- * Figure out how to get typeclasses to choose the appropriate vm
 
@@ -38,6 +41,16 @@ optionParser = RunOptions
                 <> showDefault
                 <> value (show AlexHappy)
                 )
+  <*> switch (  long "dump-lex"
+              <> short 'l'
+              <> help "Dumps the result of lexing"
+              <> showDefault
+             )
+  <*> switch (  long "dump-instructions"
+             <> short 'i'
+             <> help "Dumps the parsed instructions"
+             <> showDefault
+             )
   -- <*> strOption (  long "vm"
   --               <> metavar "[VM]"
   --               <> help "Virtual machine to execute instructions"
@@ -54,17 +67,42 @@ main = execParser opts >>= runProg where
   desc = "Runs whitespace programs - complete with pretty bad error messages"
 
 runProg :: RunOptions -> IO ()
-runProg (RunOptions file parser) = do
+runProg opts@RunOptions{file, parser} = do
   f <- B.readFile file
   case readMaybe parser of
     Nothing -> putStrLn "Please choose a parser from: [Strict|Lazy]"
     Just p  -> do
       let parse        = pickParser p
       let instructions = parse f
-      run strictStart instructions
-      pure ()
+      case (dumpLex opts, dumpInstructions opts) of
+        (True, True)   -> printLex p f >> printParse instructions
+        (True, False)  -> printLex p f
+        (False, True)  -> printParse instructions
+        (False, False) -> run strictStart instructions >> pure ()
 
 pickParser :: ParseType -> B.ByteString -> V.Vector Instruction
 pickParser t = V.fromList . pick t where
   pick AlexOnly  = scanInstructions
   pick AlexHappy = parse . alexScanTokens
+
+printLex :: ParseType -> B.ByteString -> IO ()
+printLex p bs =
+  case p of
+    AlexOnly  ->
+      printHeader ("Lex Results (same as parse results for this parser)")
+      >> (mapM_ (putStrLn . show) $ scanInstructions bs)
+    AlexHappy ->
+      printHeader "Lex Results"
+      >> (mapM_ (putStrLn . show) . alexScanTokens $ bs)
+
+printParse :: V.Vector Instruction -> IO ()
+printParse is = do
+  printHeader "Parse Results "
+  mapM_ (putStrLn . show) is
+
+printHeader :: String -> IO ()
+printHeader h = do
+  bars
+  putStrLn $ "== " ++ h
+  bars
+  where bars = putStrLn $ replicate (4 + length h) '='
