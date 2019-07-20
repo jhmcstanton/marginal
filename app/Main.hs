@@ -1,5 +1,4 @@
 {-# Language DataKinds        #-}
-{-# Language GADTs            #-}
 {-# Language NamedFieldPuns   #-}
 {-# Language TypeApplications #-}
 {-# Language TypeFamilies     #-}
@@ -78,7 +77,7 @@ runProg opts@RunOptions{file, parser} = do
         (True, True)   -> printLex p f >> printParse instructions
         (True, False)  -> printLex p f
         (False, True)  -> printParse instructions
-        (False, False) -> run strictStart instructions >> pure ()
+        (False, False) -> run (start :: VMStrict) instructions >> pure ()
 
 pickParser :: ParseType -> B.ByteString -> V.Vector Instruction
 pickParser t = V.fromList . pick t where

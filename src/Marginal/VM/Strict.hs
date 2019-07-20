@@ -1,4 +1,3 @@
-{-# Language DataKinds      #-}
 {-# Language NamedFieldPuns #-}
 {-# Language Strict         #-}
 {-# Language TypeFamilies   #-}
@@ -7,7 +6,7 @@ module Marginal.VM.Strict
     run,
     step,
     start,
-    strictStart
+    VMStrict
   )
 where
 
@@ -27,16 +26,17 @@ type Labels         = HashMap Label ProgramCounter
 
 data StepResult = VMExit | VMStart | VMOther deriving (Eq, Show)
 
-instance VMType Strict where
-  data VM Strict = VMStrict {
-    pc         :: ProgramCounter,
-    returnPtrs :: [ProgramCounter],
-    stepResult :: StepResult,
-    stack      :: VMStack,
-    heap       :: VMHeap,
-    labels     :: Labels
-  }
-  type VMOut Strict   = IO
+data VMStrict = VMStrict {
+  pc         :: ProgramCounter,
+  returnPtrs :: [ProgramCounter],
+  stepResult :: StepResult,
+  stack      :: VMStack,
+  heap       :: VMHeap,
+  labels     :: Labels
+}
+
+instance VM VMStrict where
+  type VMOut VMStrict = IO
   run vm instructions = loop vm { labels = locateLabels instructions} instructions
     where
       loop vm instructions = do
@@ -112,18 +112,18 @@ store val key map = I.insert (fromIntegral key) val map
 retrieve :: Integer -> I.IntMap Integer -> Integer
 retrieve val map = map I.! (fromIntegral val)
 
-call :: Label -> VM Strict -> VM Strict
+call :: Label -> VMStrict -> VMStrict
 call label (VMStrict pc rptrs _ stack heap labels) =
   VMStrict (labels ! label) ((pc + 1) : rptrs) VMOther stack heap labels
 
-condJump :: (Integer -> Bool) -> Label -> VM Strict -> VM Strict
+condJump :: (Integer -> Bool) -> Label -> VMStrict -> VMStrict
 condJump _ label VMStrict{stack=[]} = error $ "Stack empty, unable to jump to :" ++ show label
 condJump f label vm@(VMStrict pc rptrs _ stack@(x : xs) heap labels) =
   if f x
   then jump label vm
   else VMStrict (pc + 1) rptrs VMOther stack heap labels
 
-jump :: Label -> VM Strict -> VM Strict
+jump :: Label -> VMStrict -> VMStrict
 jump label vm@VMStrict{labels} = vm{ pc = labels ! label, stepResult = VMOther }
 
 printVal instr VMStrict{stack=[]} =
@@ -148,5 +148,5 @@ readVal ReadNum vm@VMStrict { stack=(x:xs), heap } =
            heap = I.insert (fromIntegral x) (read input) heap
          })
 
-incPC :: VM Strict -> VM Strict
+incPC :: VMStrict -> VMStrict
 incPC vm@VMStrict{pc} = vm { pc = pc + 1 }
