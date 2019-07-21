@@ -14,6 +14,7 @@ import           Data.Char
 import           Data.HashMap.Strict
 import qualified Data.IntMap.Strict as I
 import qualified Data.Vector as V
+import           System.IO (hFlush, stdout)
 
 import           Marginal.Parse.Type
 import           Marginal.VM.Type
@@ -130,9 +131,11 @@ printVal instr VMStrict{stack=[]} =
   error $ "Stack empty, unable to " ++ show instr
 printVal PrintChar vm@VMStrict{stack} = do
   putChar . chr . fromIntegral . head $ stack
+  hFlush stdout
   pure (incPC vm)
 printVal PrintNum vm@VMStrict{stack}  = do
   putStr . show . head $ stack
+  hFlush stdout
   pure (incPC vm)
 
 readVal instr VMStrict{ stack=[] } =
