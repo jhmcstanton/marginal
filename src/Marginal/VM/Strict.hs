@@ -25,7 +25,14 @@ type VMHeap         = I.IntMap Integer
 type VMStack        = [Integer]
 type Labels         = HashMap Label ProgramCounter
 
-data StepResult = VMExit | VMStart | VMOther deriving (Eq, Show)
+data StepResult = VMExit
+                | VMStart
+                | VMOut String
+                | VMErr String
+                | VMGetChar Int
+                | VMGetNum  Int
+                | VMOther
+                deriving (Eq, Show)
 
 data VMStrict = VMStrict {
   pc         :: ProgramCounter,
@@ -42,13 +49,34 @@ instance VM VMStrict where
     where
       loop vm instructions = do
         let instr = instructions V.! (pc vm)
-        vm' <- step vm instr
+        let vm'   = step vm instr
         case stepResult vm' of
-          VMExit -> pure vm'
-          _      -> run vm' instructions
+          VMExit      -> pure vm'
+          VMOut l     -> putStr l >> hFlush stdout >> loop vm' instructions
+          VMErr e     -> vmErr instr (pc vm) e >> pure vm'
+          VMGetChar l -> do
+            c <- getChar
+            let vm'' = vm'{
+                  heap = I.insert l (fromIntegral . ord $ c) (heap vm'),
+                  stepResult = VMOther
+                  }
+            loop vm'' instructions
+          VMGetNum  l -> do
+            input <- getLine
+            let vm'' = vm'{
+                  heap = I.insert l (read input) (heap vm'),
+                  stepResult = VMOther
+                  }
+            loop vm'' instructions
+          _        -> loop vm' instructions
 
   step  = step'
   start = strictStart
+
+vmErr :: Instruction -> Int -> String -> IO ()
+vmErr i loc e = do
+  putStrLn $ "Error on instruction " <> show i <> " at " <> show loc
+  putStrLn e
 
 strictStart = VMStrict 0 [] VMStart [] I.empty empty
 
@@ -60,39 +88,39 @@ locateLabels = snd . V.foldl' acc (0, empty) where
 step' vm@(VMStrict pc rptrs _ stack heap labels) instr =
   let vm' = VMStrict (pc + 1) rptrs VMOther
       stackLen = show . length
+      verr e = vm{ stepResult = VMErr e }
   in
   case instr of
-    Push (Number n) -> pure $ vm' (n : stack) heap labels
+    Push (Number n) -> vm' (n : stack) heap labels
     Dup             -> case stack of
-                         (x : xs) -> pure $ vm' (x : x : xs) heap labels
-                         []       -> error "Stack empty, nothing to duplicate!"
+                         (x : xs) -> vm' (x : x : xs) heap labels
+                         []       -> verr "Stack empty, nothing to duplicate!"
     Swap             -> case stack of
-                          (x : y : xs) -> pure $ vm' (y : x : xs) heap labels
-                          _ -> error $ "Stack too small to swap. Size: " ++ stackLen stack
+                          (x : y : xs) -> vm' (y : x : xs) heap labels
+                          _ -> verr $ "Stack too small to swap. Size: " ++ stackLen stack
     Drop             -> case stack of
-                          (x : xs) -> pure $ vm' xs heap labels
-                          _        -> error "Stack empty, nothing to discard."
-    Add              -> pure $ vm' (arithmetic stack Add) heap labels
-    Sub              -> pure $ vm' (arithmetic stack Sub) heap labels
-    Mult             -> pure $ vm' (arithmetic stack Mult) heap labels
-    Div              -> pure $ vm' (arithmetic stack Div) heap labels
-    Mod              -> pure $ vm' (arithmetic stack Mod) heap labels
+                          (x : xs) -> vm' xs heap labels
+                          _        -> verr "Stack empty, nothing to discard."
+    Add              -> vm' (arithmetic stack Add) heap labels
+    Sub              -> vm' (arithmetic stack Sub) heap labels
+    Mult             -> vm' (arithmetic stack Mult) heap labels
+    Div              -> vm' (arithmetic stack Div) heap labels
+    Mod              -> vm' (arithmetic stack Mod) heap labels
     Store            -> case stack of
-                          (val : key : xs) -> pure $ vm' stack (store val key heap) labels
-                          _ -> error $ "Stack too small to store. Size: " ++ stackLen stack
+                          (val : key : xs) -> vm' stack (store val key heap) labels
+                          _ -> verr $ "Stack too small to store. Size: " ++ stackLen stack
     Retrieve         -> case stack of
-                          (key : xs) -> pure $ vm' (retrieve key heap : stack) heap labels
-                          _ -> error "Stack empty, unable to retrieve from heap"
-    Mark label       -> pure $ vm' stack heap (insert label pc labels)
-    Func label       -> pure $ call label vm
-    Jump label       -> pure $ jump label vm
-    JumpZero label   -> pure $ condJump (== 0) label vm
-    JumpNeg label    -> pure $ condJump (<  0) label vm
+                          (key : xs) -> vm' (retrieve key heap : stack) heap labels
+                          _ -> verr "Stack empty, unable to retrieve from heap"
+    Mark label       -> vm' stack heap (insert label pc labels)
+    Func label       -> call label vm
+    Jump label       -> jump label vm
+    JumpZero label   -> condJump (== 0) label vm
+    JumpNeg label    -> condJump (<  0) label vm
     Return           -> case rptrs of
-                          []        -> error "Nothing to return to"
-                          (r : rptrs') ->
-                            pure $ vm { pc = r, returnPtrs = rptrs'}
-    Exit             -> pure vm { stepResult = VMExit }
+                          []           -> verr "Nothing to return to"
+                          (r : rptrs') -> vm { pc = r, returnPtrs = rptrs'}
+    Exit             -> vm { stepResult = VMExit }
     PrintChar        -> printVal PrintChar vm
     PrintNum         -> printVal PrintNum vm
     ReadChar         -> readVal ReadChar vm
@@ -127,29 +155,19 @@ condJump f label vm@(VMStrict pc rptrs _ stack@(x : xs) heap labels) =
 jump :: Label -> VMStrict -> VMStrict
 jump label vm@VMStrict{labels} = vm{ pc = labels ! label, stepResult = VMOther }
 
-printVal instr VMStrict{stack=[]} =
-  error $ "Stack empty, unable to " ++ show instr
-printVal PrintChar vm@VMStrict{stack} = do
-  putChar . chr . fromIntegral . head $ stack
-  hFlush stdout
-  pure (incPC vm)
-printVal PrintNum vm@VMStrict{stack}  = do
-  putStr . show . head $ stack
-  hFlush stdout
-  pure (incPC vm)
+printVal instr vm@VMStrict{stack=[]} =
+  vm{stepResult = VMErr $ "Stack empty, unable to " ++ show instr}
+printVal PrintChar vm@VMStrict{stack} =
+  incPC vm{stepResult = VMOut . pure . chr . fromIntegral . head $ stack}
+printVal PrintNum vm@VMStrict{stack} =
+  incPC vm{stepResult = VMOut . show . head $ stack}
 
-readVal instr VMStrict{ stack=[] } =
-  error $ "Stack empty, unable to " ++ show instr
+readVal instr vm@VMStrict{ stack=[] } =
+  vm{stepResult = VMErr $ "Stack empty, unable to " ++ show instr}
 readVal ReadChar vm@VMStrict{ stack=(x : xs), heap } =
-  getChar >>= \input ->
-    pure (incPC vm {
-           heap = I.insert (fromIntegral x) (fromIntegral . ord $ input) heap
-         })
+  incPC vm {stepResult = VMGetChar (fromIntegral x)}
 readVal ReadNum vm@VMStrict { stack=(x:xs), heap } =
-  getLine >>= \input ->
-    pure (incPC vm {
-           heap = I.insert (fromIntegral x) (read input) heap
-         })
+  incPC vm { stepResult = VMGetNum (fromIntegral x)}
 
 incPC :: VMStrict -> VMStrict
 incPC vm@VMStrict{pc} = vm { pc = pc + 1 }

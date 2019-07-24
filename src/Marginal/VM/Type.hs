@@ -13,5 +13,5 @@ class VM v where
                -> VMOut v v
   step         :: v
                -> Instruction
-               -> VMOut v v
+               -> v
   start        :: v
