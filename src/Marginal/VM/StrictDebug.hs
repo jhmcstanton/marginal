@@ -11,6 +11,7 @@ module Marginal.VM.StrictDebug
   )
 where
 
+import qualified Data.ByteString.Lazy.Char8 as B
 import           Data.Char
 import           Data.List (zipWith4)
 import qualified Data.IntMap.Strict as I
@@ -54,7 +55,7 @@ instance VM VMStrictDebug where
         let splitOutLines =
               formatCol colWidth <$> T.chunksOf (colWidth - 1) (output v)
         let isToShow      = V.toList . V.take (height - 5) . V.drop (pc vInner) $ is
-        let insOut        = (formatCol colWidth . T.pack . show) <$> isToShow
+        let insOut        = (formatCol colWidth . showInst) <$> isToShow
         let stackOut      = (formatCol colWidth . T.pack . show) <$> stack vInner
         let heapList      = I.toList . heap $ vInner
         let heapOut       = (formatCol colWidth . T.pack . show) <$> heapList
@@ -138,6 +139,27 @@ columns =
       "Stack",
       "Heap"
     ]
+
+showInst :: Instruction -> Text
+showInst o@(Mark l    ) = showLabelInstr o l
+showInst o@(Func l    ) = showLabelInstr o l
+showInst o@(Jump l    ) = showLabelInstr o l
+showInst o@(JumpZero l) = showLabelInstr o l
+showInst o@(JumpNeg l ) = showLabelInstr o l
+showInst i = T.pack . show $ i
+
+showLabelInstr :: Instruction -> Label -> Text
+showLabelInstr i l = left <> showLabel l <> right where
+  left = T.pack (takeWhile (/= ' ') $ show i) <> " "
+
+  right = ")"
+showLabel :: Label -> Text
+showLabel (Label i) = "(Label " <> num <> ")" where
+  num    = T.pack . show . foldl combine 0 $ digits
+  combine acc c = acc * 2 + c
+  digits = dropWhile (== 0) . fmap digit . B.unpack $ i
+  digit ' '  = 0
+  digit '\t' = 1
 
 legend :: [(String, String)]
 legend =
