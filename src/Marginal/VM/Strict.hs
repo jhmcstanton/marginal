@@ -3,10 +3,12 @@
 {-# Language TypeFamilies   #-}
 module Marginal.VM.Strict
   (
+    locateLabels,
     run,
     step,
     start,
-    VMStrict
+    VMStrict(..),
+    StepResult(..)
   )
 where
 

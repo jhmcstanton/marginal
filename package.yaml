@@ -23,11 +23,13 @@ description:         Please see the README on GitHub at <https://github.com/jhmc
 
 dependencies:
 - base                 >= 4.7 && < 5
+- ansi-terminal        >= 0.8.2
 - array                >= 0.5.3.0
 - bytestring           >= 0.10.8.2
 - containers           >= 0.6.0.1
 - unordered-containers >= 0.2.10.0
 - hashable             >= 1.2.7.0
+- text                 >= 1.2.3.1
 - vector               >= 0.12.0.3
 
 library:
@@ -41,6 +43,7 @@ library:
   - Marginal.Parse.TwoPhase.Parser
   - Marginal.Parse.Type
   - Marginal.VM.Strict
+  - Marginal.VM.StrictDebug
   - Marginal.VM.Type
 
 executables:

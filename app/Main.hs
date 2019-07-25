@@ -17,18 +17,20 @@ import           Marginal.Parse.TwoPhase.Lexer
 import           Marginal.Parse.TwoPhase.Parser
 import           Marginal.VM.Type
 import           Marginal.VM.Strict
+import           Marginal.VM.StrictDebug
 
 data RunOptions = RunOptions
   {
     file             :: FilePath
   , parser           :: String -- ParseType
-  -- , vm     :: EvalStrategy -- TODO: add this*
+  , vmType           :: String -- VMType
   , dumpLex          :: Bool
   , dumpInstructions :: Bool
   }
 -- * Figure out how to get typeclasses to choose the appropriate vm
 
 data ParseType = AlexOnly | AlexHappy deriving (Read, Show)
+data VMType    = Strict | StrictDebug deriving (Read, Show)
 
 optionParser :: Parser RunOptions
 optionParser = RunOptions
@@ -40,6 +42,12 @@ optionParser = RunOptions
                 <> showDefault
                 <> value (show AlexHappy)
                 )
+  <*> strOption (  long "vm"
+                <> metavar "[VM]"
+                <> help "Virtual machine to execute instructions"
+                <> showDefault
+                <> value (show Strict)
+              )
   <*> switch (  long "dump-lex"
               <> short 'l'
               <> help "Dumps the result of lexing"
@@ -50,12 +58,6 @@ optionParser = RunOptions
              <> help "Dumps the parsed instructions"
              <> showDefault
              )
-  -- <*> strOption (  long "vm"
-  --               <> metavar "[VM]"
-  --               <> help "Virtual machine to execute instructions"
-  --               <> showDefault
-  --               <> value Strict
-  --             )
 
 main :: IO ()
 main = execParser opts >>= runProg where
@@ -65,19 +67,28 @@ main = execParser opts >>= runProg where
          <> progDesc desc)
   desc = "Runs whitespace programs - complete with pretty bad error messages"
 
+parseOptionError = putStrLn "Please choose a parser from: [Alex|AlexHappy]"
+vmOptionError    = putStrLn "Please choose a VM from: [Strict|VMStrict]"
+
 runProg :: RunOptions -> IO ()
-runProg opts@RunOptions{file, parser} = do
+runProg opts@RunOptions{file, parser, vmType} = do
   f <- B.readFile file
-  case readMaybe parser of
-    Nothing -> putStrLn "Please choose a parser from: [Strict|Lazy]"
-    Just p  -> do
+  case (readMaybe parser, readMaybe vmType) of
+    (Nothing, Nothing)   -> parseOptionError >> vmOptionError
+    (Nothing, _)         -> parseOptionError
+    (_, Nothing)         -> vmOptionError
+    (Just p, Just vType) -> do
       let parse        = pickParser p
       let instructions = parse f
       case (dumpLex opts, dumpInstructions opts) of
         (True, True)   -> printLex p f >> printParse instructions
         (True, False)  -> printLex p f
         (False, True)  -> printParse instructions
-        (False, False) -> run (start :: VMStrict) instructions >> pure ()
+        (False, False) ->
+          case vType of
+            Strict -> run (start :: VMStrict) instructions >> pure ()
+            StrictDebug -> run (start ::VMStrictDebug) instructions >> pure ()
+
 
 pickParser :: ParseType -> B.ByteString -> V.Vector Instruction
 pickParser t = V.fromList . pick t where
