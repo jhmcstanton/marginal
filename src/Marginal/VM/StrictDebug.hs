@@ -12,6 +12,7 @@ module Marginal.VM.StrictDebug
 where
 
 import           Data.Char
+import           Data.List (zipWith4)
 import qualified Data.IntMap.Strict as I
 import           Data.Text (Text)
 import qualified Data.Text    as T
@@ -43,15 +44,34 @@ instance VM VMStrictDebug where
         clearScreen
         setCursorPosition 0 0
         putStrLn "MarginalD: The Marginal Whitespace Debugger"
+        putStrLn $ "Total Cycles: " <> (T.pack . show . cycle $ v) <> "\n"
         Just (height, width) <- getTerminalSize
         let colWidth = width `div` (length columns)
         mapM_ putStr . fmap (formatCol colWidth) $ columns
-        putStrLn $ "\n\nTotal Cycles: " <> (T.pack . show . cycle $ v) <> "\n"
+        putStrLn ""
 
+        -- Create columns from state
+        let splitOutLines =
+              formatCol colWidth <$> T.chunksOf (colWidth - 1) (output v)
+        let isToShow      = V.toList . V.take (height - 5) . V.drop (pc vInner) $ is
+        let insOut        = (formatCol colWidth . T.pack . show) <$> isToShow
+        let stackOut      = (formatCol colWidth . T.pack . show) <$> stack vInner
+        let heapList      = I.toList . heap $ vInner
+        let heapOut       = (formatCol colWidth . T.pack . show) <$> heapList
         -- Print State
-        let splitOutLines = T.chunksOf (colWidth - 1) (output v)
-        -- TODO Actually print everything and concat columns
-        mapM_ putStrLn splitOutLines
+        let combinedCols =
+              zipWith4 (\a b c d -> a <> b <> c <> d)
+                (blankCols colWidth splitOutLines)
+                (blankCols colWidth insOut)
+                (blankCols colWidth stackOut)
+                (blankCols colWidth heapOut)
+        let colSize =
+              max (length splitOutLines)
+                (max (length insOut)
+                  (max (length stackOut)
+                       (length heapOut )))
+        mapM_ putStrLn $ take colSize combinedCols
+        getLine -- TODO make this use the actual keys
         -- Run the step
         let instr = is V.! (pc vInner)
         let v' = step v instr
@@ -103,8 +123,12 @@ getTerminalSize = do
   restoreCursor
   pure p
 
+blankCols :: Int -> [Text] -> [Text]
+blankCols width cols = cols <> (repeat $ formatCol width mempty)
+
 formatCol :: Int -> Text -> Text
-formatCol totalWidth text = text <> T.replicate (totalWidth - T.length text) " "
+formatCol totalWidth text =
+  T.take (totalWidth ) $ text <> T.replicate (totalWidth - T.length text) " "
 
 columns :: [Text]
 columns =
