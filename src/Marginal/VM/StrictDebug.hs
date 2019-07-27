@@ -20,6 +20,8 @@ import           Data.Foldable (fold)
 import           Data.HashMap.Strict
 import qualified Data.IntMap.Strict as I
 import           Data.List (maximum, zipWith4)
+import           Data.Set (Set)
+import qualified Data.Set as S
 import           Data.Text (Text)
 import qualified Data.Text          as T
 import qualified Data.Text.Encoding as T
@@ -37,13 +39,14 @@ data EventType =
     Quit
   | Next
   | Continue
+  | Break Int
   | Up
   | Down
   | Labels
   | Retry -- Bad input
   deriving Show
 
-data AwaitInput = Await | Skip
+data AwaitInput = Await | Skip deriving Show
 
 data VMStrictDebug = VMStrictDebug {
    vm        :: VMStrict,
@@ -56,7 +59,8 @@ data DebuggerState = DebuggerState {
     windowPos    :: Int, -- Starting line of window being displayed (frequently 0)
     cycle        :: Integer,
     windowHeight :: Int,
-    windowWidth  :: Int
+    windowWidth  :: Int,
+    breakPoints  :: Set Int
   }
 
 setAwait :: VMState m => AwaitInput -> m ()
@@ -101,6 +105,12 @@ setWindowSize = do
       width  <- getWinWidth
       pure (height, width)
 
+getBreakPoints :: VMState m => m (Set Int)
+getBreakPoints = breakPoints <$> get
+
+addBreakPoint :: VMState m => Int -> m ()
+addBreakPoint n = modify $ \s -> s{ breakPoints = S.insert n (breakPoints s) }
+
 type VMState m = (StateType m ~ DebuggerState, MonadState m)
 
 instance VM VMStrictDebug where
@@ -129,17 +139,22 @@ instance VM VMStrictDebug where
 
         -- Create columns from state
         out <- getOutput
-        let splitOutLines =
-              formatCol colWidth <$> T.chunksOf (colWidth - 1) out
+        let chunkOut :: Char -> (Text, [Text]) -> (Text, [Text])
+            chunkOut c (acc, accs) = if T.length acc == colWidth
+                                     then (T.singleton c, acc : accs)
+                                     else (acc `T.snoc` c, accs)
+        let chunkedLines  = reverse . snd . T.foldr chunkOut (mempty, []) $ out
+        let splitOutLines = formatCol colWidth <$> chunkedLines
         let isToShow      = V.toList . V.drop (pc vm) $ is
-        let insOut        = showInst <$> isToShow
+        let insOut        = zipWith showInstCol [pc vm..] isToShow
         let stackOut      = (T.pack . show) <$> stack vm
         let heapList      = I.toList . heap $ vm
         let heapOut       = (T.pack . show) <$> heapList
         -- Print State
         let rawCols = (:) <$> ZipList columns
                           <*> ZipList [splitOutLines, insOut, stackOut, heapOut]
-        let cols = (ZipList . blankCols colWidth . fmap (formatCol colWidth)) <$> getZipList rawCols
+        let cols = (ZipList . blankCols colWidth . fmap (formatCol colWidth))
+                   <$> getZipList rawCols
         let combinedCols =
               (\a b c d -> a <> b <> c <> d)
               <$> cols !! 0
@@ -147,6 +162,10 @@ instance VM VMStrictDebug where
               <*> cols !! 2
               <*> cols !! 3
         liftIO . mapM_ putStrLn $ take (height - 3) $ getZipList combinedCols
+        breakPoints <- getBreakPoints
+        if pc vm `S.member` breakPoints
+        then setAwait Await
+        else pure ()
         w  <- getAwait
         ev <- liftIO $ getInput w
         case ev of
@@ -155,6 +174,7 @@ instance VM VMStrictDebug where
           Continue -> setAwait Skip >> stepInner vm is
           Retry    -> loop vm is
           Labels   -> (liftIO $ printLabels vm) >> loop vm is
+          Break i  -> addBreakPoint i           >> loop vm is
           _        -> loop vm is
 
       stepInner vm is = do
@@ -189,7 +209,7 @@ instance VM VMStrictDebug where
     let vm' = step vm i in
     v{vm = vm', state = state{ cycle = cycle state + 1}}
 
-  start = VMStrictDebug start (DebuggerState Await mempty 0 0 30 80)
+  start = VMStrictDebug start (DebuggerState Await mempty 0 0 30 80 mempty)
 
 getInput :: AwaitInput -> IO EventType
 getInput Skip  = pure Continue
@@ -200,6 +220,7 @@ getInput Await = do
     'c'    -> pure Continue
     'q'    -> pure Quit
     'l'    -> pure Labels
+    'b'    -> (Break . read) <$> getLine
     '\ESC' -> do
       _    <- getChar
       code <- getChar
@@ -225,6 +246,7 @@ printLabels vm = do
   then pure ()
   else printLabels vm
   where
+    exitChars = "ncl\ESC"
     ls = toList . labels $ vm
     strictls = fmap (showLabel . fst) ls
     telem c t = case T.findIndex (== c) t of
@@ -250,7 +272,8 @@ blankCols width cols = cols <> (repeat $ formatCol width mempty)
 
 formatCol :: Int -> Text -> Text
 formatCol totalWidth text =
-  T.take (totalWidth ) $ text <> T.replicate (totalWidth - T.length text) " "
+  let text' = T.take (totalWidth - 1) text in
+  T.take totalWidth $ text' <> T.replicate (totalWidth - T.length text') " "
 
 columns :: [Text]
 columns =
@@ -260,6 +283,9 @@ columns =
       "Stack",
       "Heap"
     ]
+
+showInstCol :: Int -> Instruction -> Text
+showInstCol i c = (T.pack $ show i) <> ": " <> showInst c
 
 showInst :: Instruction -> Text
 showInst o@(Mark l    ) = showLabelInstr o l
