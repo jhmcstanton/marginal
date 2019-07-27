@@ -12,13 +12,17 @@ module Marginal.VM.StrictDebug
   )
 where
 
+import           Control.Applicative
 import           Control.Monad.State.Strict
 import qualified Data.ByteString.Lazy.Char8 as B
 import           Data.Char
+import           Data.Foldable (fold)
+import           Data.HashMap.Strict
 import qualified Data.IntMap.Strict as I
 import           Data.List (maximum, zipWith4)
 import           Data.Text (Text)
-import qualified Data.Text    as T
+import qualified Data.Text          as T
+import qualified Data.Text.Encoding as T
 import           Data.Text.IO hiding (getLine)
 import qualified Data.Vector  as V
 import           Prelude hiding (cycle, putStr, putStrLn)
@@ -117,42 +121,40 @@ instance VM VMStrictDebug where
            -> m VMStrict
       loop vm is = do
         -- Header Stuff
-        liftIO clearScreen
-        liftIO $ setCursorPosition 0 0
-        liftIO $ putStrLn "MarginalD: The Marginal Whitespace Debugger"
+        liftIO refreshScreen
         cycle <- getCycle
         liftIO $ putStrLn $ "Total Cycles: " <> (T.pack . show $ cycle) <> "\n"
         (height, width) <- setWindowSize
         let colWidth = width `div` (length columns)
-        liftIO $ mapM_ putStr . fmap (formatCol colWidth) $ columns
-        liftIO $ putStrLn ""
 
         -- Create columns from state
         out <- getOutput
         let splitOutLines =
               formatCol colWidth <$> T.chunksOf (colWidth - 1) out
-        let isToShow      = V.toList . V.take (height - 5) . V.drop (pc vm) $ is
-        let insOut        = (formatCol colWidth . showInst) <$> isToShow
-        let stackOut      = (formatCol colWidth . T.pack . show) <$> stack vm
+        let isToShow      = V.toList . V.drop (pc vm) $ is
+        let insOut        = showInst <$> isToShow
+        let stackOut      = (T.pack . show) <$> stack vm
         let heapList      = I.toList . heap $ vm
-        let heapOut       = (formatCol colWidth . T.pack . show) <$> heapList
+        let heapOut       = (T.pack . show) <$> heapList
         -- Print State
+        let rawCols = (:) <$> ZipList columns
+                          <*> ZipList [splitOutLines, insOut, stackOut, heapOut]
+        let cols = (ZipList . blankCols colWidth . fmap (formatCol colWidth)) <$> getZipList rawCols
         let combinedCols =
-              zipWith4 (\a b c d -> a <> b <> c <> d)
-                (blankCols colWidth splitOutLines)
-                (blankCols colWidth insOut)
-                (blankCols colWidth stackOut)
-                (blankCols colWidth heapOut)
-        let colSize =
-              maximum . fmap length $ [splitOutLines, insOut, stackOut, heapOut]
-        liftIO $ mapM_ putStrLn $ take colSize combinedCols
-        w <- getAwait
+              (\a b c d -> a <> b <> c <> d)
+              <$> cols !! 0
+              <*> cols !! 1
+              <*> cols !! 2
+              <*> cols !! 3
+        liftIO . mapM_ putStrLn $ take (height - 3) $ getZipList combinedCols
+        w  <- getAwait
         ev <- liftIO $ getInput w
         case ev of
           Quit     -> pure vm
           Next     ->                  stepInner vm is
           Continue -> setAwait Skip >> stepInner vm is
           Retry    -> loop vm is
+          Labels   -> (liftIO $ printLabels vm) >> loop vm is
           _        -> loop vm is
 
       stepInner vm is = do
@@ -206,6 +208,29 @@ getInput Await = do
         'B' -> pure Down
         _   -> pure Retry
     _       -> pure Retry
+
+refreshScreen :: IO ()
+refreshScreen = do
+  clearScreen
+  setCursorPosition 0 0
+  putStrLn "MarginalD: The Marginal Whitespace Debugger"
+
+printLabels :: VMStrict -> IO ()
+printLabels vm = do
+  refreshScreen
+  putStrLn "Labels: "
+  mapM_ putStrLn strictls
+  c <- getChar
+  if c `telem` "ncl\ESC"
+  then pure ()
+  else printLabels vm
+  where
+    ls = toList . labels $ vm
+    strictls = fmap (showLabel . fst) ls
+    telem c t = case T.findIndex (== c) t of
+                  Just _  -> True
+                  Nothing -> False
+
 vmErr :: Instruction -> Int -> String -> IO ()
 vmErr i loc e = do
   putStrLn . T.pack $ "Error on instruction " <> show i <> " at " <> show loc
@@ -247,8 +272,8 @@ showInst i = T.pack . show $ i
 showLabelInstr :: Instruction -> Label -> Text
 showLabelInstr i l = left <> showLabel l <> right where
   left = T.pack (takeWhile (/= ' ') $ show i) <> " "
-
   right = ")"
+
 showLabel :: Label -> Text
 showLabel (Label i) = "(Label " <> num <> ")" where
   num    = T.pack . show . foldl combine 0 $ digits
