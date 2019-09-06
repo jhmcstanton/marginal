@@ -1,3 +1,4 @@
+{-# Language DataKinds      #-}
 {-# Language NamedFieldPuns #-}
 {-# Language Strict         #-}
 {-# Language TypeFamilies   #-}
@@ -7,8 +8,15 @@ module Marginal.VM.Strict
     run,
     step,
     start,
-    VMStrict(..),
-    StepResult(..)
+    StepResult(..),
+    -- VMStrict(..), replaced by getters below
+    pc,
+    returnPtrs,
+    stepResult,
+    stack,
+    heap,
+    labels,
+    VMStrict'
   )
 where
 
@@ -36,17 +44,17 @@ data StepResult = VMExit
                 | VMOther
                 deriving (Eq, Show)
 
-data VMStrict = VMStrict {
-  pc         :: ProgramCounter,
-  returnPtrs :: [ProgramCounter],
-  stepResult :: StepResult,
-  stack      :: VMStack,
-  heap       :: VMHeap,
-  labels     :: Labels
-}
-
-instance VM VMStrict where
-  type VMOut VMStrict = IO
+instance VM 'Strict where
+  data VMState 'Strict = VMStrict
+    {
+      pc         :: ProgramCounter,
+      returnPtrs :: [ProgramCounter],
+      stepResult :: StepResult,
+      stack      :: VMStack,
+      heap       :: VMHeap,
+      labels     :: Labels
+    }
+  type VMOut 'Strict = IO
   run vm instructions = loop vm { labels = locateLabels instructions} instructions
     where
       loop vm instructions = do
@@ -74,6 +82,8 @@ instance VM VMStrict where
 
   step  = step'
   start = strictStart
+
+type VMStrict' = VMState 'Strict
 
 vmErr :: Instruction -> Int -> String -> IO ()
 vmErr i loc e = do
@@ -143,18 +153,18 @@ store val key map = I.insert (fromIntegral key) val map
 retrieve :: Integer -> I.IntMap Integer -> Integer
 retrieve val map = map I.! (fromIntegral val)
 
-call :: Label -> VMStrict -> VMStrict
+call :: Label -> VMStrict' -> VMStrict'
 call label (VMStrict pc rptrs _ stack heap labels) =
   VMStrict (labels ! label) ((pc + 1) : rptrs) VMOther stack heap labels
 
-condJump :: (Integer -> Bool) -> Label -> VMStrict -> VMStrict
+condJump :: (Integer -> Bool) -> Label -> VMStrict' -> VMStrict'
 condJump _ label VMStrict{stack=[]} = error $ "Stack empty, unable to jump to :" ++ show label
 condJump f label vm@(VMStrict pc rptrs _ stack@(x : xs) heap labels) =
   if f x
   then jump label vm
   else VMStrict (pc + 1) rptrs VMOther stack heap labels
 
-jump :: Label -> VMStrict -> VMStrict
+jump :: Label -> VMStrict' -> VMStrict'
 jump label vm@VMStrict{labels} = vm{ pc = labels ! label, stepResult = VMOther }
 
 printVal instr vm@VMStrict{stack=[]} =
@@ -171,5 +181,5 @@ readVal ReadChar vm@VMStrict{ stack=(x : xs), heap } =
 readVal ReadNum vm@VMStrict { stack=(x:xs), heap } =
   incPC vm { stepResult = VMGetNum (fromIntegral x)}
 
-incPC :: VMStrict -> VMStrict
+incPC :: VMStrict' -> VMStrict'
 incPC vm@VMStrict{pc} = vm { pc = pc + 1 }

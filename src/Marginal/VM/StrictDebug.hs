@@ -1,4 +1,5 @@
 {-# Language ConstraintKinds   #-}
+{-# Language DataKinds         #-}
 {-# Language NamedFieldPuns    #-}
 {-# Language OverloadedStrings #-}
 {-# Language Strict            #-}
@@ -8,7 +9,9 @@ module Marginal.VM.StrictDebug
     run,
     step,
     start,
-    VMStrictDebug(..)
+    -- VMStrictDebug(..) -- replaced by getters below
+    vm,
+    state
   )
 where
 
@@ -48,10 +51,6 @@ data EventType =
 
 data AwaitInput = Await | Skip deriving Show
 
-data VMStrictDebug = VMStrictDebug {
-   vm        :: VMStrict,
-   state     :: DebuggerState
- }
 
 data DebuggerState = DebuggerState {
     wait         :: AwaitInput,
@@ -63,37 +62,37 @@ data DebuggerState = DebuggerState {
     breakPoints  :: Set Int
   }
 
-setAwait :: VMState m => AwaitInput -> m ()
+setAwait :: DebugState m => AwaitInput -> m ()
 setAwait w = modify $ \s -> s{ wait = w }
 
-getAwait :: VMState m => m AwaitInput
+getAwait :: DebugState m => m AwaitInput
 getAwait = wait <$> get
 
-adjustWinPos :: VMState m => Int -> m ()
+adjustWinPos :: DebugState m => Int -> m ()
 adjustWinPos i = modify $ \s -> s{ windowPos = windowPos s + i }
 
-getWinPos :: VMState m => m Int
+getWinPos :: DebugState m => m Int
 getWinPos = windowPos <$> get
 
-appendOutput :: VMState m => Text -> m ()
+appendOutput :: DebugState m => Text -> m ()
 appendOutput o = modify $ \s -> s{ output = output s <> o }
 
-getOutput :: VMState m => m Text
+getOutput :: DebugState m => m Text
 getOutput = output <$> get
 
-incCycle :: VMState m => m ()
+incCycle :: DebugState m => m ()
 incCycle = modify $ \s -> s{ cycle = cycle s + 1}
 
-getCycle :: VMState m => m Integer
+getCycle :: DebugState m => m Integer
 getCycle = cycle <$> get
 
-getWinHeight :: VMState m => m Int
+getWinHeight :: DebugState m => m Int
 getWinHeight = windowHeight <$> get
 
-getWinWidth :: VMState m => m Int
+getWinWidth :: DebugState m => m Int
 getWinWidth = windowWidth <$> get
 
-setWindowSize :: (MonadIO m, VMState m) => m (Int, Int)
+setWindowSize :: (MonadIO m, DebugState m) => m (Int, Int)
 setWindowSize = do
   size <- liftIO getTerminalSize
   case size of
@@ -105,16 +104,20 @@ setWindowSize = do
       width  <- getWinWidth
       pure (height, width)
 
-getBreakPoints :: VMState m => m (Set Int)
+getBreakPoints :: DebugState m => m (Set Int)
 getBreakPoints = breakPoints <$> get
 
-addBreakPoint :: VMState m => Int -> m ()
+addBreakPoint :: DebugState m => Int -> m ()
 addBreakPoint n = modify $ \s -> s{ breakPoints = S.insert n (breakPoints s) }
 
-type VMState m = (StateType m ~ DebuggerState, MonadState m)
+type DebugState m = (StateType m ~ DebuggerState, MonadState m)
 
-instance VM VMStrictDebug where
-  type VMOut VMStrictDebug = IO
+instance VM 'StrictDebug where
+  type VMOut 'StrictDebug   = IO
+  data VMState 'StrictDebug = VMStrictDebug {
+   vm        :: VMStrict',
+   state     :: DebuggerState
+  }
   run VMStrictDebug{vm, state} is = do
     -- setup
     origBuffering <- hGetBuffering stdin
@@ -125,10 +128,10 @@ instance VM VMStrictDebug where
     hSetBuffering stdin origBuffering
     pure $ VMStrictDebug v s
     where
-      loop :: (MonadIO m, VMState m)
-           => VMStrict
+      loop :: (MonadIO m, DebugState m)
+           => VMStrict'
            -> V.Vector Instruction
-           -> m VMStrict
+           -> m VMStrict'
       loop vm is = do
         -- Header Stuff
         liftIO refreshScreen
@@ -236,7 +239,7 @@ refreshScreen = do
   setCursorPosition 0 0
   putStrLn "MarginalD: The Marginal Whitespace Debugger"
 
-printLabels :: VMStrict -> IO ()
+printLabels :: VMStrict' -> IO ()
 printLabels vm = do
   refreshScreen
   putStrLn "Labels: "

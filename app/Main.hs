@@ -30,7 +30,6 @@ data RunOptions = RunOptions
 -- * Figure out how to get typeclasses to choose the appropriate vm
 
 data ParseType = AlexOnly | AlexHappy deriving (Read, Show)
-data VMType    = Strict | StrictDebug deriving (Read, Show)
 
 optionParser :: Parser RunOptions
 optionParser = RunOptions
@@ -86,8 +85,8 @@ runProg opts@RunOptions{file, parser, vmType} = do
         (False, True)  -> printParse instructions
         (False, False) ->
           case vType of
-            Strict -> run (start :: VMStrict) instructions >> pure ()
-            StrictDebug -> run (start ::VMStrictDebug) instructions >> pure ()
+            Strict -> run (start :: VMState 'Strict) instructions >> pure ()
+            StrictDebug -> run (start :: VMState 'StrictDebug) instructions >> pure ()
 
 
 pickParser :: ParseType -> B.ByteString -> V.Vector Instruction
